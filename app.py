@@ -4,21 +4,281 @@ from streamlit_stl import stl_from_file
 from stl import mesh
 import numpy as np
 import tempfile
+from datetime import datetime
+import random
 import os
-import stripe
+import pandas as pd
 
-# ====================================
-# PAGE CONFIG
-# ====================================
+# Page Configuration
 st.set_page_config(
-    page_title="3D Printing Hub",
+    page_title="3D Printing Hub - POS System",
     page_icon="🖨️",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="collapsed"
 )
 
-# ====================================
-# SESSION STATE INITIALIZATION
-# ====================================
+# Custom CSS Styling
+st.markdown("""
+    <style>
+    /* Hide Streamlit branding */
+    #MainMenu, footer, header {visibility: hidden;}
+    
+    /* Button styling */
+    .stButton button {
+        width: 100%;
+        border-radius: 8px;
+        height: 3rem;
+        font-weight: 500;
+        transition: all 0.3s ease;
+    }
+    
+    .stButton button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    
+    /* Product image styling */
+    .product-image {
+        width: 100%;
+        height: 200px;
+        object-fit: cover;
+        border-radius: 8px;
+        margin-bottom: 1rem;
+    }
+    
+    /* Quantity controls */
+    .qty-controls {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        margin-top: 0.5rem;
+    }
+    
+    .qty-btn {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        border: 2px solid #4f46e5;
+        background: white;
+        color: #4f46e5;
+        font-size: 1.5rem;
+        font-weight: bold;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s ease;
+    }
+    
+    .qty-btn:hover {
+        background: #4f46e5;
+        color: white;
+    }
+    
+    .qty-display {
+        font-size: 1.3rem;
+        font-weight: 600;
+        min-width: 50px;
+        text-align: center;
+        color: #4f46e5;
+    }
+    
+    /* Container styling */
+    [data-testid="stVerticalBlock"] > [style*="flex-direction: column;"] > [data-testid="stVerticalBlock"] {
+        border-radius: 10px;
+    }
+    
+    /* Dataframe styling */
+    [data-testid="stDataFrame"] {
+        border-radius: 8px;
+        overflow: hidden;
+    }
+    
+    /* Invoice header */
+    .invoice-header {
+        text-align: center;
+        padding: 2rem;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 12px;
+        color: white;
+        margin-bottom: 2rem;
+    }
+    
+    .invoice-header h1 {
+        margin: 0;
+        font-size: 2.5rem;
+        font-weight: 700;
+    }
+    
+    .invoice-header p {
+        margin: 0.5rem 0;
+        opacity: 0.95;
+    }
+    
+    /* Section headers */
+    .section-header {
+        color: #4f46e5;
+        border-bottom: 3px solid #4f46e5;
+        padding-bottom: 0.5rem;
+        margin-bottom: 1rem;
+        font-weight: 600;
+    }
+    
+    /* Info boxes */
+    .info-box {
+        background: #f8fafc;
+        border-left: 4px solid #4f46e5;
+        padding: 1rem;
+        border-radius: 8px;
+        margin: 1rem 0;
+    }
+    
+    /* Total box */
+    .total-box {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 1.5rem;
+        border-radius: 12px;
+        text-align: center;
+        margin: 1.5rem 0;
+        box-shadow: 0 8px 16px rgba(102, 126, 234, 0.3);
+    }
+    
+    .total-box h2 {
+        margin: 0;
+        font-size: 2rem;
+    }
+    
+    /* Payment info */
+    .payment-info {
+        background: #f0f9ff;
+        border: 2px solid #0ea5e9;
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-top: 2rem;
+    }
+    
+    .payment-info h4 {
+        color: #0369a1;
+        margin-top: 0;
+    }
+    
+    /* Print button */
+    .print-info {
+        background: #fef3c7;
+        border: 2px solid #f59e0b;
+        border-radius: 8px;
+        padding: 1rem;
+        text-align: center;
+        margin: 1rem 0;
+    }
+    
+    /* Table styling */
+    .dataframe {
+        font-size: 0.95rem;
+    }
+    
+    /* Metric cards */
+    [data-testid="metric-container"] {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 12px;
+        padding: 1rem;
+        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+    }
+    
+    @media print {
+        .stApp > header, .stApp > footer, button, .print-info {
+            display: none !important;
+        }
+        .invoice-header {
+            background: #4f46e5 !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+DISCOUNT_CODES = {
+    "SAY-NO-TO-POLYMATE": 0.15,
+    "SKEM-FILAMENT-PRICE": 0.20,
+    "PARCEL-DEEZ-NUTS": 0.50
+}
+
+MATERIALS = {
+    "PLA": {"density": 1.24, "cost": 0.05, "desc": "General purpose printing"},
+    "ABS": {"density": 1.04, "cost": 0.04, "desc": "Functional parts"},
+    "PETG": {"density": 1.27, "cost": 0.06, "desc": "Durable applications"},
+    "Resin": {"density": 1.10, "cost": 0.12, "desc": "High detail models"},
+    "Nylon": {"density": 1.14, "cost": 0.08, "desc": "Strong mechanical parts"}
+}
+
+# ADD YOUR IMAGE PATHS HERE
+FILAMENTS = [
+    {
+        "id": "pla_white",
+        "name": "PLA Filament - White",
+        "material": "PLA",
+        "price": 25.00,
+        "color": "White",
+        "stock": "In Stock",
+        "rating": 4.8,
+        "image": "https://via.placeholder.com/300x200/FFFFFF/000000?text=PLA+White"  # Replace with your image path
+    },
+    {
+        "id": "pla_black",
+        "name": "PLA Filament - Black",
+        "material": "PLA",
+        "price": 25.00,
+        "color": "Black",
+        "stock": "In Stock",
+        "rating": 4.9,
+        "image": "https://via.placeholder.com/300x200/000000/FFFFFF?text=PLA+Black"  # Replace with your image path
+    },
+    {
+        "id": "abs_red",
+        "name": "ABS Filament - Red",
+        "material": "ABS",
+        "price": 28.00,
+        "color": "Red",
+        "stock": "In Stock",
+        "rating": 4.7,
+        "image": "https://via.placeholder.com/300x200/FF0000/FFFFFF?text=ABS+Red"  # Replace with your image path
+    },
+    {
+        "id": "petg_blue",
+        "name": "PETG Filament - Blue",
+        "material": "PETG",
+        "price": 30.00,
+        "color": "Blue",
+        "stock": "In Stock",
+        "rating": 4.6,
+        "image": "https://via.placeholder.com/300x200/0000FF/FFFFFF?text=PETG+Blue"  # Replace with your image path
+    },
+    {
+        "id": "tpu_clear",
+        "name": "TPU Flexible - Clear",
+        "material": "TPU",
+        "price": 35.00,
+        "color": "Clear",
+        "stock": "Low Stock",
+        "rating": 4.5,
+        "image": "https://via.placeholder.com/300x200/CCCCCC/000000?text=TPU+Clear"  # Replace with your image path
+    },
+    {
+        "id": "nylon_natural",
+        "name": "Nylon Filament - Natural",
+        "material": "Nylon",
+        "price": 40.00,
+        "color": "Natural",
+        "stock": "In Stock",
+        "rating": 4.8,
+        "image": "https://via.placeholder.com/300x200/F5F5DC/000000?text=Nylon+Natural"  # Replace with your image path
+    }
+]
+
+# Initialize session state variables
 if 'view' not in st.session_state:
     st.session_state.view = 'home'
 if 'print_volume' not in st.session_state:
@@ -29,194 +289,230 @@ if 'print_cost' not in st.session_state:
     st.session_state.print_cost = 0
 if 'print_material' not in st.session_state:
     st.session_state.print_material = "PLA"
-if 'stl_file_path' not in st.session_state:
-    st.session_state.stl_file_path = None
 if 'filament_cart' not in st.session_state:
     st.session_state.filament_cart = {}
+if 'discount_code' not in st.session_state:
+    st.session_state.discount_code = ""
+if 'discount_amount' not in st.session_state:
+    st.session_state.discount_amount = 0
+if 'show_invoice' not in st.session_state:
+    st.session_state.show_invoice = False
+if 'invoice_data' not in st.session_state:
+    st.session_state.invoice_data = None
 
-# ====================================
-# STRIPE CONFIGURATION
-# ====================================
-STRIPE_SECRET_KEY = st.secrets.get("stripe_secret_key", "")
-if STRIPE_SECRET_KEY:
-    stripe.api_key = STRIPE_SECRET_KEY
-
-# ====================================
-# MATERIAL DATA
-# ====================================
-MATERIAL_DENSITY = {
-    "PLA": 1.24,
-    "ABS": 1.04,
-    "PETG": 1.27,
-    "Resin": 1.10,
-    "Nylon": 1.14
-}
-
-MATERIAL_COST = {
-    "PLA": 0.05,
-    "ABS": 0.04,
-    "PETG": 0.06,
-    "Resin": 0.12,
-    "Nylon": 0.08
-}
-
-# ====================================
-# FILAMENT PRODUCTS DATA
-# ====================================
-FILAMENT_PRODUCTS = [
-    {
-        'id': 'pla_white',
-        'name': 'PLA Filament - White',
-        'material': 'PLA',
-        'price': 25.00,
-        'color': 'White',
-        'weight': '1kg',
-        'image': 'https://via.placeholder.com/300x200/FFFFFF/000000?text=PLA+White',
-        'use_cases': 'Perfect for prototypes, models, and decorative items.',
-        'features': ['Easy to print', 'Low warping', 'Biodegradable']
-    },
-    {
-        'id': 'pla_black',
-        'name': 'PLA Filament - Black',
-        'material': 'PLA',
-        'price': 25.00,
-        'color': 'Black',
-        'weight': '1kg',
-        'image': 'https://via.placeholder.com/300x200/000000/FFFFFF?text=PLA+Black',
-        'use_cases': 'Ideal for professional-looking models and parts.',
-        'features': ['Sleek finish', 'Easy to print', 'Versatile']
-    },
-    {
-        'id': 'abs_red',
-        'name': 'ABS Filament - Red',
-        'material': 'ABS',
-        'price': 28.00,
-        'color': 'Red',
-        'weight': '1kg',
-        'image': 'https://via.placeholder.com/300x200/FF0000/FFFFFF?text=ABS+Red',
-        'use_cases': 'Great for functional parts with heat resistance.',
-        'features': ['High strength', 'Heat resistant', 'Impact resistant']
-    },
-    {
-        'id': 'petg_blue',
-        'name': 'PETG Filament - Blue',
-        'material': 'PETG',
-        'price': 30.00,
-        'color': 'Blue',
-        'weight': '1kg',
-        'image': 'https://via.placeholder.com/300x200/0000FF/FFFFFF?text=PETG+Blue',
-        'use_cases': 'Perfect for outdoor parts and containers.',
-        'features': ['UV resistant', 'Waterproof', 'Strong']
-    },
-    {
-        'id': 'tpu_clear',
-        'name': 'TPU Flexible - Clear',
-        'material': 'TPU',
-        'price': 35.00,
-        'color': 'Clear',
-        'weight': '1kg',
-        'image': 'https://via.placeholder.com/300x200/E0E0E0/000000?text=TPU+Clear',
-        'use_cases': 'Ideal for flexible parts and phone cases.',
-        'features': ['Flexible', 'Elastic', 'Shock absorbing']
-    },
-    {
-        'id': 'nylon_natural',
-        'name': 'Nylon Filament - Natural',
-        'material': 'Nylon',
-        'price': 40.00,
-        'color': 'Natural',
-        'weight': '1kg',
-        'image': 'https://via.placeholder.com/300x200/F5F5DC/000000?text=Nylon+Natural',
-        'use_cases': 'Best for high-strength mechanical parts.',
-        'features': ['High strength', 'Low friction', 'Wear resistant']
-    }
-]
-
-# ====================================
-# HELPER FUNCTIONS
-# ====================================
 def navigate_to(view):
+    """Navigate to different pages in the app"""
     st.session_state.view = view
     st.rerun()
 
-# ====================================
-# HOME VIEW
-# ====================================
-def show_home():
-    st.markdown("<h1 style='text-align: center; margin-bottom: 2rem;'>🖨️ 3D Printing Hub</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; font-size: 1.2rem; color: #666; margin-bottom: 3rem;'>Your one-stop solution for 3D printing services and materials</p>", unsafe_allow_html=True)
+def apply_discount(total, code):
+    """Apply discount code to total amount"""
+    code = code.upper()
+    if code in DISCOUNT_CODES:
+        return total * DISCOUNT_CODES[code]
+    return 0
+
+def display_invoice(invoice_data):
+    """Display invoice using Streamlit components with custom styling"""
     
+    # Header with gradient
+    st.markdown(f"""
+        <div class="invoice-header">
+            <h1>🖨️ 3D PRINTING HUB</h1>
+            <p>Professional 3D Printing Services & Premium Filaments</p>
+            <p style="font-size: 1.1rem; font-weight: 600;">Invoice #{invoice_data['invoice_number']} | {invoice_data['date']}</p>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # Customer and Order Info
     col1, col2 = st.columns(2, gap="large")
     
     with col1:
-        with ui.element("div", className="p-6 border rounded-lg shadow-sm", key="card_printing"):
+        st.markdown('<h3 class="section-header">📋 Bill To</h3>', unsafe_allow_html=True)
+        st.markdown(f"""
+            <div class="info-box">
+                <p><strong>Name:</strong> {invoice_data['customer_name']}</p>
+                <p><strong>Email:</strong> {invoice_data['customer_email']}</p>
+                <p><strong>Phone:</strong> {invoice_data['customer_phone']}</p>
+                <p><strong>Address:</strong> {invoice_data['customer_address'].replace('<br>', ', ')}</p>
+            </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown('<h3 class="section-header">📦 Order Details</h3>', unsafe_allow_html=True)
+        st.markdown(f"""
+            <div class="info-box">
+                <p><strong>Type:</strong> {invoice_data['order_type']}</p>
+                <p><strong>Date:</strong> {invoice_data['date']}</p>
+                <p><strong>Terms:</strong> Due on Receipt</p>
+                <p><strong>Status:</strong> <span style="color: #f59e0b; font-weight: 600;">⏳ Pending Payment</span></p>
+            </div>
+        """, unsafe_allow_html=True)
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Items Table
+    st.markdown('<h3 class="section-header">🛒 Items</h3>', unsafe_allow_html=True)
+    
+    # Create dataframe for items
+    items_data = []
+    for item in invoice_data['items']:
+        items_data.append({
+            'Description': item['description'],
+            'Quantity': item['quantity'],
+            'Unit Price': f"${item['unit_price']:.2f}",
+            'Total': f"${item['total']:.2f}"
+        })
+    
+    df = pd.DataFrame(items_data)
+    st.dataframe(
+        df, 
+        use_container_width=True, 
+        hide_index=True,
+        column_config={
+            "Description": st.column_config.TextColumn("Description", width="large"),
+            "Quantity": st.column_config.NumberColumn("Qty", width="small"),
+            "Unit Price": st.column_config.TextColumn("Unit Price", width="medium"),
+            "Total": st.column_config.TextColumn("Total", width="medium"),
+        }
+    )
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Totals
+    col1, col2 = st.columns([1.5, 1], gap="large")
+    
+    with col1:
+        st.markdown("")  # Spacer
+    
+    with col2:
+        st.markdown('<h3 class="section-header">💰 Summary</h3>', unsafe_allow_html=True)
+        
+        st.markdown(f"""
+            <div style="font-size: 1.1rem; line-height: 2;">
+                <p><strong>Subtotal:</strong> <span style="float: right;">${invoice_data['subtotal']:.2f}</span></p>
+        """, unsafe_allow_html=True)
+        
+        if invoice_data.get('shipping', 0) > 0:
+            st.markdown(f'<p><strong>Shipping:</strong> <span style="float: right;">${invoice_data["shipping"]:.2f}</span></p>', unsafe_allow_html=True)
+        
+        if invoice_data.get('tax', 0) > 0:
+            st.markdown(f'<p><strong>Tax (9%):</strong> <span style="float: right;">${invoice_data["tax"]:.2f}</span></p>', unsafe_allow_html=True)
+        
+        if invoice_data.get('discount', 0) > 0:
+            st.markdown(f'<p style="color: #10b981;"><strong>Discount ({invoice_data["discount_code"]}):</strong> <span style="float: right;">-${invoice_data["discount"]:.2f}</span></p>', unsafe_allow_html=True)
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        st.markdown(f"""
+            <div class="total-box">
+                <h2>TOTAL: ${invoice_data['total']:.2f} SGD</h2>
+            </div>
+        """, unsafe_allow_html=True)
+    
+    # Payment Information
+    st.markdown(f"""
+        <div class="payment-info">
+            <h4>💳 Payment Information</h4>
+            <p><strong>Thank you for your business!</strong></p>
+            <p>Payment Instructions: Please transfer to <strong>DBS Singapore</strong></p>
+            <p>Account Number: <strong>123-456789-0</strong></p>
+            <p>Reference: <strong>Invoice #{invoice_data['invoice_number']}</strong></p>
+            <hr style="border-color: #0ea5e9; margin: 1rem 0;">
+            <p style="font-size: 0.9rem; color: #0369a1;">
+                3D Printing Hub | contact@3dprintinghub.sg | +65 9876 5432
+            </p>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # Print instructions
+    st.markdown("""
+        <div class="print-info">
+            <strong>💡 Press Ctrl+P (or Cmd+P on Mac) to print this invoice</strong>
+        </div>
+    """, unsafe_allow_html=True)
+
+def show_home():
+    """Display home page with service options"""
+    st.markdown("""
+        <div style='text-align: center; padding: 3rem 0 2rem 0;'>
+            <h1 style='font-size: 3.5rem; font-weight: 700; margin-bottom: 1rem; 
+                       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                       -webkit-background-clip: text;
+                       -webkit-text-fill-color: transparent;
+                       background-clip: text;'>
+                🖨️ 3D Printing Hub
+            </h1>
+            <p style='font-size: 1.25rem; color: #6b7280;'>Professional 3D printing services and premium materials</p>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # Metrics display
+    col1, col2, col3, col4 = st.columns(4, gap="medium")
+    with col1:
+        ui.metric_card(title="Materials", content="6+", description="Premium filaments", key="m1")
+    with col2:
+        ui.metric_card(title="Accuracy", content="±0.1mm", description="High precision", key="m2")
+    with col3:
+        ui.metric_card(title="Delivery", content="24-48h", description="Fast turnaround", key="m3")
+    with col4:
+        ui.metric_card(title="Rating", content="4.8/5", description="500+ customers", key="m4")
+    
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    
+    # Service selection
+    col1, col2 = st.columns(2, gap="large")
+    
+    with col1:
+        with st.container(border=True):
             st.markdown("### 🖨️ 3D Printing Service")
-            st.markdown("---")
             st.markdown("""
-            **Upload your 3D model and get it printed!**
-            
-            ✓ Fast turnaround time
-            
-            ✓ Multiple material options
-            
-            ✓ Instant price calculation
-            
-            ✓ High-quality prints
+            ✓ Multiple Materials - 5 options available  
+            ✓ Instant Pricing - Upload for immediate quote  
+            ✓ High Quality - Industrial-grade printers  
+            ✓ Fast Delivery - 24-48 hour turnaround
             """)
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("Start Printing →", key="btn_to_printing", use_container_width=True, type="primary"):
+            if st.button("Start Your Print", key="btn_print", use_container_width=True, type="primary"):
                 navigate_to('printing')
     
     with col2:
-        with ui.element("div", className="p-6 border rounded-lg shadow-sm", key="card_filament"):
-            st.markdown("### 🧵 Get Filament")
-            st.markdown("---")
+        with st.container(border=True):
+            st.markdown("### 🧵 Filament Store")
             st.markdown("""
-            **Browse our premium filament collection**
-            
-            ✓ PLA, ABS, PETG & more
-            
-            ✓ Various colors available
-            
-            ✓ Competitive pricing
-            
-            ✓ Fast shipping
+            ✓ Wide Selection - 6+ materials and colors  
+            ✓ Quality Assured - Tested filaments  
+            ✓ Best Prices - Competitive pricing  
+            ✓ Fast Shipping - Same-day dispatch
             """)
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("Browse Filaments →", key="btn_to_filament", use_container_width=True, type="primary"):
+            if st.button("Browse Products", key="btn_filament", use_container_width=True, type="primary"):
                 navigate_to('filament')
 
-# ====================================
-# 3D PRINTING SERVICE VIEW
-# ====================================
 def show_printing_service():
-    # Navigation
-    col_nav1, col_nav2 = st.columns([1, 5])
-    with col_nav1:
-        if st.button("← Home", key="back_from_printing"):
+    """Display 3D printing service page with STL upload and pricing"""
+    col1, col2 = st.columns([1, 8])
+    with col1:
+        if st.button("← Back"):
             navigate_to('home')
+    with col2:
+        st.markdown("### 🖨️ 3D Printing Service")
     
-    st.title("🖨️ 3D Printing Service")
-    ui.badges(badge_list=[("STL Upload", "default"), ("Price Calculator", "secondary")], class_name="flex gap-2", key="printing_badges")
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("---")
     
-    # Main content
-    col_left, col_right = st.columns([1.2, 1], gap="large")
+    col_left, col_right = st.columns([1.3, 1], gap="large")
     
     with col_left:
-        st.subheader("📁 Upload Your Model")
+        st.markdown("#### Upload Your STL File")
         
-        uploaded_file = st.file_uploader(
-            "Choose an STL file",
-            type="stl",
-            help="Upload your 3D model in STL format"
-        )
+        uploaded_file = st.file_uploader("Choose STL file", type="stl", label_visibility="collapsed")
         
-        material = st.selectbox(
-            "Select Material",
-            list(MATERIAL_COST.keys()),
-            help="Choose the material for your print"
-        )
+        material = st.selectbox("Select Material", list(MATERIALS.keys()))
+        
+        st.info(f"""
+        **{material} Properties:**  
+        Density: {MATERIALS[material]['density']} g/cm³  
+        Cost: ${MATERIALS[material]['cost']:.3f}/gram  
+        Use: {MATERIALS[material]['desc']}
+        """)
         
         if uploaded_file:
             with tempfile.NamedTemporaryFile(delete=False, suffix=".stl") as tmp_file:
@@ -225,30 +521,28 @@ def show_printing_service():
                 st.session_state.stl_file_path = tmp_file_path
             
             try:
-                # Load and calculate volume
+                # Calculate volume and weight from STL file
                 your_mesh = mesh.Mesh.from_file(tmp_file_path)
                 vectors = your_mesh.vectors
-                
                 volume_mm3 = np.abs(np.sum(np.einsum('...i,...i->...', vectors[:, 0], np.cross(vectors[:, 1], vectors[:, 2])))) / 6
                 volume_cm3 = volume_mm3 / 1000.0
                 
-                density_g_per_cm3 = MATERIAL_DENSITY[material]
-                cost_per_gram = MATERIAL_COST[material]
-                weight_g = volume_cm3 * density_g_per_cm3
-                cost_sgd = weight_g * cost_per_gram
+                weight_g = volume_cm3 * MATERIALS[material]['density']
+                cost = weight_g * MATERIALS[material]['cost']
                 
+                # Store in session state
                 st.session_state.print_volume = volume_cm3
                 st.session_state.print_weight = weight_g
-                st.session_state.print_cost = cost_sgd
+                st.session_state.print_cost = cost
                 st.session_state.print_material = material
                 
-                st.success("✅ Model uploaded successfully!")
+                st.success("✅ Model analyzed successfully!")
                 
-                st.markdown("---")
-                st.subheader("🧊 3D Model Preview")
+                # Display 3D preview
+                st.markdown("#### 3D Preview")
                 stl_from_file(
                     file_path=tmp_file_path,
-                    color='#FF6B6B',
+                    color='#3b82f6',
                     material='material',
                     auto_rotate=True,
                     height=400,
@@ -256,443 +550,345 @@ def show_printing_service():
                 )
                 
             except Exception as e:
-                st.error(f"Error processing STL file: {e}")
+                st.error(f"Error processing STL: {str(e)}")
+            finally:
+                if os.path.exists(tmp_file_path):
+                    os.unlink(tmp_file_path)
     
     with col_right:
-        st.subheader("💰 Price Estimation")
+        st.markdown("#### 💰 Price Estimation")
         
         if uploaded_file:
-            # Metrics using shadcn-ui cards
-            cols_metrics = st.columns(2)
-            with cols_metrics[0]:
-                ui.card(
+            # Display metrics
+            col1, col2 = st.columns(2)
+            with col1:
+                ui.metric_card(
                     title="Volume",
-                    content=f"{st.session_state.print_volume:.2f} cm³",
-                    key="volume_card"
-                ).render()
-            with cols_metrics[1]:
-                ui.card(
+                    content=f"{st.session_state.print_volume:.2f}",
+                    description="cm³",
+                    key="vol_metric"
+                )
+            with col2:
+                ui.metric_card(
                     title="Weight",
-                    content=f"{st.session_state.print_weight:.2f} g",
-                    key="weight_card"
-                ).render()
-            
-            st.markdown("<br>", unsafe_allow_html=True)
-            
-            # Material info
-            st.markdown(f"**Material:** {st.session_state.print_material}")
-            st.markdown(f"**Unit Cost:** ${MATERIAL_COST[st.session_state.print_material]:.3f}/g")
+                    content=f"{st.session_state.print_weight:.2f}",
+                    description="grams",
+                    key="weight_metric"
+                )
             
             st.markdown("---")
             
-            # Total cost
-            st.markdown("### Total Cost")
-            st.markdown(f"<h2 style='color: #FF6B6B;'>${st.session_state.print_cost:.2f} SGD</h2>", unsafe_allow_html=True)
+            # Discount code input
+            discount_code = st.text_input("Discount Code", placeholder="Optional")
             
-            st.markdown("<br>", unsafe_allow_html=True)
+            base_cost = st.session_state.print_cost
+            discount = apply_discount(base_cost, discount_code)
+            final_cost = base_cost - discount
             
-            if st.button("Continue to Checkout →", key="btn_to_printing_checkout", type="primary", use_container_width=True):
+            st.session_state.discount_code = discount_code
+            st.session_state.discount_amount = discount
+            
+            # Display pricing
+            if discount > 0:
+                st.success(f"✅ Discount applied: {DISCOUNT_CODES[discount_code.upper()]*100:.0f}% off!")
+                st.markdown(f"<p style='font-size: 1.2rem;'>~~${base_cost:.2f}~~ <strong style='color: #10b981; font-size: 1.5rem;'>${final_cost:.2f} SGD</strong></p>", unsafe_allow_html=True)
+            else:
+                st.markdown(f"""
+                <div class="total-box">
+                    <h2>${final_cost:.2f} SGD</h2>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            if st.button("Proceed to Checkout", key="checkout_print", type="primary", use_container_width=True):
                 navigate_to('printing_checkout')
         else:
-            st.info("📤 Upload an STL file to see pricing")
-            st.markdown("""
-            **Pricing is based on:**
-            - Model volume (cm³)
-            - Material density
-            - Material cost per gram
-            
-            Upload your file to get an instant quote!
-            """)
+            st.info("📤 Upload a file to get instant pricing")
 
-# ====================================
-# PRINTING CHECKOUT VIEW
-# ====================================
 def show_printing_checkout():
-    # Navigation
-    col_nav1, col_nav2 = st.columns([1, 5])
-    with col_nav1:
-        if st.button("← Back", key="back_from_printing_checkout"):
-            navigate_to('printing')
-    
-    st.title("💳 Checkout - 3D Printing")
-    ui.badges(badge_list=[("Secure Payment", "default")], class_name="flex gap-2", key="checkout_badges")
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    if st.session_state.print_cost == 0:
-        st.error("⚠️ No order found. Please upload a model first.")
+    """Display checkout page for 3D printing service"""
+    if st.session_state.show_invoice and st.session_state.invoice_data:
+        # Display invoice
+        if st.button("← Back to Checkout", key="back_to_checkout"):
+            st.session_state.show_invoice = False
+            st.rerun()
+        
+        st.markdown("---")
+        display_invoice(st.session_state.invoice_data)
         return
     
-    # Order Summary
-    st.subheader("📋 Order Summary")
-    
-    cols_summary = st.columns(2)
-    with cols_summary[0]:
-        st.markdown("**3D Print Service**")
-        st.markdown(f"Material: {st.session_state.print_material}")
-        st.markdown(f"Volume: {st.session_state.print_volume:.2f} cm³")
-        st.markdown(f"Weight: {st.session_state.print_weight:.2f} g")
-    with cols_summary[1]:
-        st.markdown(f"<h3 style='color: #FF6B6B;'>${st.session_state.print_cost:.2f}</h3>", unsafe_allow_html=True)
-    
-    st.markdown("---")
-    
-    # Customer Information
-    st.subheader("📧 Contact Information")
-    col1, col2 = st.columns(2)
+    col1, col2 = st.columns([1, 8])
     with col1:
-        customer_email = st.text_input("Email Address", placeholder="your@email.com", key="print_email")
+        if st.button("← Back", key="back_checkout"):
+            navigate_to('printing')
     with col2:
-        customer_name = st.text_input("Full Name", placeholder="John Doe", key="print_name")
+        st.markdown("### 🛒 Checkout")
     
     st.markdown("---")
     
-    # Payment Section
-    st.subheader("💰 Payment")
-    st.markdown(f"### Total: ${st.session_state.print_cost:.2f} SGD")
+    if st.session_state.print_cost == 0:
+        st.error("No order found. Please upload a model first.")
+        return
     
-    if st.button("🔒 Proceed to Secure Payment", type="primary", use_container_width=True, key="btn_pay_printing"):
-        if not customer_email or not customer_name:
-            st.error("Please fill in all contact information")
-        elif not STRIPE_SECRET_KEY:
-            st.error("Stripe is not configured. Please add your API key to .streamlit/secrets.toml")
-        else:
-            try:
-                session = stripe.checkout.Session.create(
-                    payment_method_types=['card'],
-                    line_items=[{
-                        'price_data': {
-                            'currency': 'sgd',
-                            'product_data': {
-                                'name': '3D Printing Service',
-                                'description': f'{st.session_state.print_material} - {st.session_state.print_volume:.2f} cm³',
-                            },
-                            'unit_amount': int(st.session_state.print_cost * 100),
-                        },
+    col_left, col_right = st.columns([1.5, 1], gap="large")
+    
+    with col_left:
+        st.markdown('<h4 class="section-header">📝 Contact Information</h4>', unsafe_allow_html=True)
+        customer_name = st.text_input("Name *")
+        customer_email = st.text_input("Email *")
+        customer_phone = st.text_input("Phone *")
+        customer_address = st.text_area("Address *", height=100)
+    
+    with col_right:
+        st.markdown('<h4 class="section-header">📦 Order Summary</h4>', unsafe_allow_html=True)
+        
+        base_cost = st.session_state.print_cost
+        discount = st.session_state.discount_amount
+        final_cost = base_cost - discount
+        
+        st.info(f"""
+        **3D Print Service**  
+        Material: {st.session_state.print_material}  
+        Volume: {st.session_state.print_volume:.2f} cm³  
+        Weight: {st.session_state.print_weight:.2f} g  
+        
+        Subtotal: ${base_cost:.2f}
+        """)
+        
+        if discount > 0:
+            st.success(f"✅ Discount: -${discount:.2f}")
+        
+        st.markdown(f"""
+        <div class="total-box">
+            <h2>${final_cost:.2f} SGD</h2>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        if st.button("📄 View Invoice", type="primary", use_container_width=True):
+            if not all([customer_name, customer_email, customer_phone, customer_address]):
+                st.error("⚠️ Please fill in all required fields")
+            else:
+                invoice_number = f"INV-{datetime.now().strftime('%Y%m%d')}-{random.randint(1000, 9999)}"
+                
+                invoice_data = {
+                    'invoice_number': invoice_number,
+                    'date': datetime.now().strftime('%B %d, %Y'),
+                    'customer_name': customer_name,
+                    'customer_email': customer_email,
+                    'customer_phone': customer_phone,
+                    'customer_address': customer_address.replace('\n', '<br>'),
+                    'order_type': '3D Printing Service',
+                    'items': [{
+                        'description': f'3D Printing - {st.session_state.print_material}',
                         'quantity': 1,
+                        'unit_price': base_cost,
+                        'total': base_cost
                     }],
-                    mode='payment',
-                    customer_email=customer_email,
-                    success_url=st.secrets.get("success_url", "http://localhost:8501"),
-                    cancel_url=st.secrets.get("cancel_url", "http://localhost:8501"),
-                    metadata={
-                        'customer_name': customer_name,
-                        'material': st.session_state.print_material,
-                        'volume': str(st.session_state.print_volume),
-                    }
-                )
+                    'subtotal': base_cost,
+                    'discount': discount,
+                    'discount_code': st.session_state.discount_code.upper() if discount > 0 else '',
+                    'total': final_cost
+                }
                 
-                st.success("✅ Payment session created!")
-                st.markdown(f"**[Click here to complete payment]({session.url})**")
-                
-            except stripe.error.StripeError as e:
-                st.error(f"Payment error: {str(e)}")
-            except Exception as e:
-                st.error(f"An error occurred: {str(e)}")
+                st.session_state.invoice_data = invoice_data
+                st.session_state.show_invoice = True
+                st.rerun()
 
-# ====================================
-# FILAMENT STORE VIEW
-# ====================================
 def show_filament_store():
-    # Navigation
-    col_nav1, col_nav2 = st.columns([1, 5])
-    with col_nav1:
-        if st.button("← Home", key="back_from_filament"):
+    """Display filament store with products and shopping cart"""
+    col1, col2, col3 = st.columns([1, 6, 3])
+    with col1:
+        if st.button("← Back", key="back_fil"):
             navigate_to('home')
-    
-    st.title("🧵 Filament Store")
-    ui.badges(badge_list=[("Premium Quality", "default"), (f"Cart: {sum(st.session_state.filament_cart.values())} items", "secondary")], class_name="flex gap-2", key="filament_badges")
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    # Filters
-    col_filter1, col_filter2 = st.columns([2, 2])
-    with col_filter1:
-        material_filter = st.selectbox(
-            "Filter by Material",
-            ["All"] + list(set([p['material'] for p in FILAMENT_PRODUCTS]))
-        )
-    with col_filter2:
-        sort_by = st.selectbox(
-            "Sort by",
-            ["Price: Low to High", "Price: High to Low", "Material", "Name"]
-        )
-    
-    # Apply filters
-    filtered_products = FILAMENT_PRODUCTS.copy()
-    if material_filter != "All":
-        filtered_products = [p for p in filtered_products if p['material'] == material_filter]
-    
-    # Apply sorting
-    if sort_by == "Price: Low to High":
-        filtered_products.sort(key=lambda x: x['price'])
-    elif sort_by == "Price: High to Low":
-        filtered_products.sort(key=lambda x: x['price'], reverse=True)
-    elif sort_by == "Material":
-        filtered_products.sort(key=lambda x: x['material'])
-    elif sort_by == "Name":
-        filtered_products.sort(key=lambda x: x['name'])
-    
+    with col2:
+        st.markdown("### 🧵 Filament Store")
+    with col3:
+        cart_count = sum(st.session_state.filament_cart.values())
+        if cart_count > 0:
+            if st.button(f"🛒 Cart ({cart_count})", use_container_width=True):
+                navigate_to('filament_checkout')
+
     st.markdown("---")
-    st.subheader(f"Available Products ({len(filtered_products)})")
     
     # Display products in grid
     cols_per_row = 3
-    for i in range(0, len(filtered_products), cols_per_row):
-        cols = st.columns(cols_per_row, gap="large")
-        
+    for i in range(0, len(FILAMENTS), cols_per_row):
+        cols = st.columns(cols_per_row, gap="medium")
         for j, col in enumerate(cols):
-            if i + j < len(filtered_products):
-                product = filtered_products[i + j]
-                
-                with col:
-                    # Product card
-                    st.image(product['image'], use_container_width=True)
-                    st.markdown(f"### {product['name']}")
+            if i + j < len(FILAMENTS):
+                product = FILAMENTS[i + j]
+                with col, st.container(border=True):
+                    # Product Image - FIXED: use_column_width instead of use_container_width
+                    try:
+                        st.image(product['image'], use_column_width=True)
+                    except Exception as e:
+                        st.warning(f"Image not found: {product['name']}")
                     
-                    ui.badges(
-                        badge_list=[(product['material'], "default"), (product['color'], "secondary")],
-                        class_name="flex gap-2",
-                        key=f"badge_{product['id']}"
-                    )
+                    st.markdown(f"**{product['name']}**")
+                    st.caption(f"{product['material']} • {product['color']} • {product['stock']}")
+                    st.caption(f"⭐ {product['rating']}/5")
                     
-                    st.markdown(f"**Weight:** {product['weight']}")
-                    st.markdown(f"**Use Cases:** {product['use_cases']}")
-                    
-                    with st.expander("Features"):
-                        for feature in product['features']:
-                            st.markdown(f"✓ {feature}")
-                    
-                    st.markdown("---")
-                    
-                    col_price, col_qty = st.columns([2, 1])
-                    with col_price:
-                        st.markdown(f"<h3 style='color: #FF6B6B;'>${product['price']:.2f}</h3>", unsafe_allow_html=True)
-                    with col_qty:
-                        qty = st.number_input(
-                            "Qty",
-                            min_value=0,
-                            max_value=10,
-                            value=st.session_state.filament_cart.get(product['id'], 0),
-                            key=f"qty_{product['id']}"
-                        )
-                    
-                    if qty > 0:
-                        st.session_state.filament_cart[product['id']] = qty
-                    elif product['id'] in st.session_state.filament_cart:
-                        del st.session_state.filament_cart[product['id']]
-    
-    # Cart Summary
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown("---")
-    
-    if st.session_state.filament_cart:
-        st.subheader("🛒 Your Cart")
-        
-        total_items = sum(st.session_state.filament_cart.values())
-        total_cost = sum(
-            st.session_state.filament_cart[pid] * next(p['price'] for p in FILAMENT_PRODUCTS if p['id'] == pid)
-            for pid in st.session_state.filament_cart
-        )
-        
-        col1, col2, col3, col4 = st.columns([2, 2, 1, 1])
-        with col1:
-            st.markdown(f"**Total Items:** {total_items}")
-        with col2:
-            st.markdown(f"**Total Cost:** ${total_cost:.2f} SGD")
-        with col3:
-            if st.button("Checkout →", type="primary", use_container_width=True, key="btn_to_filament_checkout"):
-                navigate_to('filament_checkout')
-        with col4:
-            if st.button("Clear", use_container_width=True, key="btn_clear_cart"):
-                st.session_state.filament_cart = {}
-                st.rerun()
-        
-        with st.expander("View Cart Details"):
-            for product_id, qty in st.session_state.filament_cart.items():
-                product = next(p for p in FILAMENT_PRODUCTS if p['id'] == product_id)
-                st.markdown(f"- **{product['name']}** x{qty} = ${product['price'] * qty:.2f}")
-    else:
-        st.info("🛒 Your cart is empty. Add some filaments to get started!")
+                    st.markdown(f"### ${product['price']:.2f}")
 
-# ====================================
-# FILAMENT CHECKOUT VIEW
-# ====================================
+                    current_qty = st.session_state.filament_cart.get(product['id'], 0)
+                    
+                    # Always show Add to Cart button
+                    if st.button("Add to Cart", key=f"add_{product['id']}", use_container_width=True, type="primary"):
+                        if current_qty == 0:
+                            st.session_state.filament_cart[product['id']] = 1
+                        else:
+                            st.session_state.filament_cart[product['id']] += 1
+                        st.rerun()
+                    
+                    # Show quantity controls if item is in cart
+                    if current_qty > 0:
+                        st.markdown(f"""
+                            <div class="qty-controls">
+                                <span class="qty-display">In Cart: {current_qty}</span>
+                            </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # Remove button
+                        if st.button("🗑️ Remove", key=f"remove_{product['id']}", use_container_width=True):
+                            del st.session_state.filament_cart[product['id']]
+                            st.rerun()
+    
+    cart_items = sum(st.session_state.filament_cart.values())
+    if cart_items > 0:
+        st.markdown("---")
+        if st.button("Proceed to Checkout →", use_container_width=True, type="primary"):
+            navigate_to('filament_checkout')
+            
 def show_filament_checkout():
-    # Navigation
-    col_nav1, col_nav2 = st.columns([1, 5])
-    with col_nav1:
-        if st.button("← Back", key="back_from_filament_checkout"):
-            navigate_to('filament')
-    
-    st.title("💳 Checkout - Filament Order")
-    ui.badges(badge_list=[("Secure Payment", "default")], class_name="flex gap-2", key="filament_checkout_badges")
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    if not st.session_state.filament_cart:
-        st.error("⚠️ Your cart is empty.")
+    """Display checkout page for filament orders"""
+    if st.session_state.show_invoice and st.session_state.invoice_data:
+        # Display invoice
+        if st.button("← Back to Checkout", key="back_to_checkout2"):
+            st.session_state.show_invoice = False
+            st.rerun()
+        
+        st.markdown("---")
+        display_invoice(st.session_state.invoice_data)
         return
     
-    # Calculate totals
-    cart_items = []
-    subtotal = 0
-    
-    for product_id, qty in st.session_state.filament_cart.items():
-        product = next((p for p in FILAMENT_PRODUCTS if p['id'] == product_id), None)
-        if product:
-            item_total = product['price'] * qty
-            subtotal += item_total
-            cart_items.append({'product': product, 'quantity': qty, 'total': item_total})
-    
-    SHIPPING_RATE = 5.00 if subtotal < 100 else 0
-    tax = subtotal * 0.09
-    total = subtotal + SHIPPING_RATE + tax
-    
-    # Order Summary
-    st.subheader("📋 Order Summary")
-    
-    for item in cart_items:
-        cols = st.columns([3, 1, 1])
-        with cols[0]:
-            st.markdown(f"**{item['product']['name']}**")
-            st.caption(f"{item['product']['material']} • {item['product']['color']}")
-        with cols[1]:
-            st.markdown(f"x{item['quantity']}")
-        with cols[2]:
-            st.markdown(f"${item['total']:.2f}")
-    
-    st.markdown("---")
-    
-    cols_total = st.columns([3, 1])
-    with cols_total[0]:
-        st.markdown("**Subtotal**")
-    with cols_total[1]:
-        st.markdown(f"${subtotal:.2f}")
-    
-    cols_shipping = st.columns([3, 1])
-    with cols_shipping[0]:
-        st.markdown("**Shipping**")
-        if SHIPPING_RATE == 0:
-            st.caption("🎉 Free!")
-    with cols_shipping[1]:
-        st.markdown(f"${SHIPPING_RATE:.2f}")
-    
-    cols_tax = st.columns([3, 1])
-    with cols_tax[0]:
-        st.markdown("**Tax (GST 9%)**")
-    with cols_tax[1]:
-        st.markdown(f"${tax:.2f}")
-    
-    st.markdown("---")
-    
-    cols_grand = st.columns([3, 1])
-    with cols_grand[0]:
-        st.markdown("### **Total**")
-    with cols_grand[1]:
-        st.markdown(f"<h3 style='color: #FF6B6B;'>${total:.2f}</h3>", unsafe_allow_html=True)
-    
-    st.markdown("---")
-    
-    # Shipping Info
-    st.subheader("📦 Shipping Information")
-    col1, col2 = st.columns(2)
+    col1, col2 = st.columns([1, 8])
     with col1:
-        customer_name = st.text_input("Full Name *", key="fil_name")
+        if st.button("← Back", key="back_fil_check"):
+            navigate_to('filament')
+    with col2:
+        st.markdown("### 🛒 Filament Checkout")
+    
+    st.markdown("---")
+    
+    if not st.session_state.filament_cart:
+        st.error("Your cart is empty.")
+        if st.button("Browse Filaments", use_container_width=True):
+            navigate_to('filament')
+        return
+    
+    col_left, col_right = st.columns([1.5, 1], gap="large")
+    
+    with col_left:
+        st.markdown('<h4 class="section-header">📝 Contact Information</h4>', unsafe_allow_html=True)
+        customer_name = st.text_input("Name *", key="fil_name")
         customer_email = st.text_input("Email *", key="fil_email")
         customer_phone = st.text_input("Phone *", key="fil_phone")
-    with col2:
-        customer_address = st.text_area("Delivery Address *", height=132, key="fil_address")
+        customer_address = st.text_area("Address *", height=100, key="fil_addr")
     
-    st.markdown("---")
-    
-    # Payment
-    st.subheader("💰 Payment")
-    st.markdown(f"### Total: ${total:.2f} SGD")
-    
-    if st.button("🔒 Proceed to Secure Payment", type="primary", use_container_width=True, key="btn_pay_filament"):
-        if not all([customer_name, customer_email, customer_phone, customer_address]):
-            st.error("Please fill in all required fields")
-        elif not STRIPE_SECRET_KEY:
-            st.error("Stripe is not configured. Please add your API key to .streamlit/secrets.toml")
-        else:
-            try:
-                stripe_line_items = []
-                
-                for item in cart_items:
-                    stripe_line_items.append({
-                        'price_data': {
-                            'currency': 'sgd',
-                            'product_data': {
-                                'name': item['product']['name'],
-                                'description': f"{item['product']['material']} - {item['product']['color']}",
-                            },
-                            'unit_amount': int(item['product']['price'] * 100),
-                        },
-                        'quantity': item['quantity'],
-                    })
-                
-                if SHIPPING_RATE > 0:
-                    stripe_line_items.append({
-                        'price_data': {
-                            'currency': 'sgd',
-                            'product_data': {'name': 'Shipping'},
-                            'unit_amount': int(SHIPPING_RATE * 100),
-                        },
-                        'quantity': 1,
-                    })
-                
-                stripe_line_items.append({
-                    'price_data': {
-                        'currency': 'sgd',
-                        'product_data': {'name': 'Tax (GST 9%)'},
-                        'unit_amount': int(tax * 100),
-                    },
-                    'quantity': 1,
+    with col_right:
+        st.markdown('<h4 class="section-header">📦 Order Summary</h4>', unsafe_allow_html=True)
+        
+        with st.container(border=True):
+            cart_items_data = []
+            subtotal = 0
+            
+            # Calculate cart totals
+            for product_id, qty in st.session_state.filament_cart.items():
+                product = next(p for p in FILAMENTS if p['id'] == product_id)
+                item_total = product['price'] * qty
+                subtotal += item_total
+                cart_items_data.append({
+                    'product': product,
+                    'quantity': qty,
+                    'total': item_total
                 })
-                
-                session = stripe.checkout.Session.create(
-                    payment_method_types=['card'],
-                    line_items=stripe_line_items,
-                    mode='payment',
-                    customer_email=customer_email,
-                    success_url=st.secrets.get("success_url", "http://localhost:8501"),
-                    cancel_url=st.secrets.get("cancel_url", "http://localhost:8501"),
-                    metadata={
-                        'customer_name': customer_name,
-                        'order_type': 'filament',
-                    }
-                )
-                
-                st.success("✅ Payment session created!")
-                st.markdown(f"**[Click here to complete payment]({session.url})**")
-                
-            except stripe.error.StripeError as e:
-                st.error(f"Payment error: {str(e)}")
-            except Exception as e:
-                st.error(f"An error occurred: {str(e)}")
+                st.text(f"{product['name']} (x{qty}) - ${item_total:.2f}")
 
-# ====================================
-# MAIN APP ROUTER
-# ====================================
+            # Calculate additional charges
+            shipping = 0 if subtotal >= 100 else 5.00
+            tax = subtotal * 0.09
+            
+            st.markdown("---")
+            discount_code = st.text_input("Discount Code", placeholder="Optional", key="cart_discount")
+            discount = apply_discount(subtotal, discount_code)
+            st.session_state.discount_amount = discount
+            
+            total = subtotal + shipping + tax - discount
+            
+            st.markdown(f"""
+            <div style="font-size: 1.05rem; line-height: 1.8;">
+                Subtotal: <code>${subtotal:.2f}</code><br>
+                Shipping: <code>{'FREE' if shipping == 0 else f'${shipping:.2f}'}</code><br>
+                Tax (9%): <code>${tax:.2f}</code>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            if discount > 0:
+                st.success(f"✅ Discount Applied: -${discount:.2f}")
+        
+        st.markdown(f"""
+        <div class="total-box">
+            <h2>${total:.2f} SGD</h2>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        if st.button("📄 View Invoice", type="primary", use_container_width=True, key="gen_inv"):
+            if not all([customer_name, customer_email, customer_phone, customer_address]):
+                st.error("⚠️ Please fill in all contact fields")
+            else:
+                invoice_number = f"INV-{datetime.now().strftime('%Y%m%d')}-{random.randint(1000, 9999)}"
+                
+                items = []
+                for item in cart_items_data:
+                    items.append({
+                        'description': item['product']['name'],
+                        'quantity': item['quantity'],
+                        'unit_price': item['product']['price'],
+                        'total': item['total']
+                    })
+                
+                invoice_data = {
+                    'invoice_number': invoice_number,
+                    'date': datetime.now().strftime('%B %d, %Y'),
+                    'customer_name': customer_name,
+                    'customer_email': customer_email,
+                    'customer_phone': customer_phone,
+                    'customer_address': customer_address.replace('\n', '<br>'),
+                    'order_type': 'Filament Order',
+                    'items': items,
+                    'subtotal': subtotal,
+                    'shipping': shipping,
+                    'tax': tax,
+                    'discount': discount,
+                    'discount_code': discount_code.upper() if discount > 0 else '',
+                    'total': total
+                }
+                
+                st.session_state.invoice_data = invoice_data
+                st.session_state.show_invoice = True
+                st.rerun()
+
 def main():
-    # Custom CSS
-    st.markdown("""
-        <style>
-        .main > div {
-            padding-top: 2rem;
-        }
-        </style>
-    """, unsafe_allow_html=True)
+    """Main function to route between pages"""
+    views = {
+        'home': show_home,
+        'printing': show_printing_service,
+        'printing_checkout': show_printing_checkout,
+        'filament': show_filament_store,
+        'filament_checkout': show_filament_checkout
+    }
     
-    # Route to appropriate view
-    if st.session_state.view == 'home':
-        show_home()
-    elif st.session_state.view == 'printing':
-        show_printing_service()
-    elif st.session_state.view == 'printing_checkout':
-        show_printing_checkout()
-    elif st.session_state.view == 'filament':
-        show_filament_store()
-    elif st.session_state.view == 'filament_checkout':
-        show_filament_checkout()
+    view_func = views.get(st.session_state.view, show_home)
+    view_func()
 
 if __name__ == "__main__":
     main()
