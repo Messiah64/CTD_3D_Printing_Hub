@@ -1,17 +1,6 @@
-# Core web framework for the application
-streamlit
-
-# For the custom UI components (cards, badges, etc.)
-streamlit-shadcn-ui
-
-# For rendering the 3D STL model preview in the browser
-streamlit-stl
-
-# For parsing the STL file and calculating its volume and properties
-numpy-stl
-
-# Core library for numerical operations, required by numpy-stl
-numpy
-
-# Python client for the Stripe API to handle payments
-stripe
+streamlit>=1.28.0
+streamlit-shadcn-ui>=0.3.0
+streamlit-stl>=1.0.0
+numpy-stl>=3.0.0
+numpy>=1.24.0
+pandas>=2.0.0
