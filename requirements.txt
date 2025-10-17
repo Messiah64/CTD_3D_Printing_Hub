@@ -12,6 +12,3 @@ numpy-stl
 
 # Core library for numerical operations, required by numpy-stl
 numpy
-
-# Python client for the Stripe API to handle payments
-stripe
