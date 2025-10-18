@@ -2,9 +2,6 @@ import streamlit as st
 from datetime import datetime
 import random
 from openai import OpenAI
-import warnings
-
-warnings.filterwarnings("ignore") #supress older version of streamlit warnings lol
 
 # Page Configuration
 st.set_page_config(
@@ -638,7 +635,7 @@ def show_filament_store():
                 with col, st.container(border=True):
                     # Product Image
                     try:
-                        st.image(product['image'], use_column_width=True)
+                        st.image(product['image'], use_container_width=True)
                     except Exception as e:
                         st.warning(f"Image not found: {product['name']}")
                     
