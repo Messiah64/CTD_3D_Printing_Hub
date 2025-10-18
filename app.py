@@ -635,7 +635,7 @@ def show_filament_store():
                 with col, st.container(border=True):
                     # Product Image
                     try:
-                        st.image(product['image'], use_container_width=True)
+                        st.image(product['image'], use_container_width=True, output_format='auto')
                     except Exception as e:
                         st.warning(f"Image not found: {product['name']}")
                     
