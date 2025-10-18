@@ -4,6 +4,8 @@ import random
 from openai import OpenAI
 import warnings
 
+warnings.filterwarnings("ignore") #supress older version of streamlit warnings lol
+
 # Page Configuration
 st.set_page_config(
     page_title="3D Printing Hub - POS System",
@@ -11,8 +13,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed"
 )
-
-warnings.filterwarnings("ignore") #supress older version of streamlit warnings lol
 
 # Custom CSS Styling
 st.markdown("""
