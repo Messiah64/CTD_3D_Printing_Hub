@@ -2,6 +2,7 @@ import streamlit as st
 from datetime import datetime
 import random
 from openai import OpenAI
+import warnings
 
 # Page Configuration
 st.set_page_config(
@@ -10,6 +11,8 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed"
 )
+
+warnings.filterwarnings("ignore") #supress older version of streamlit warnings lol
 
 # Custom CSS Styling
 st.markdown("""
